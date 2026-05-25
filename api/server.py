@@ -1,162 +1,231 @@
 """
-CortexFlow API Server — FastAPI-based REST interface for the platform.
+CortexFlow REST API — FastAPI application with auth, WebSocket, and pipeline endpoints.
 
-Provides:
-- POST /api/v1/analyze — Submit analysis jobs
-- GET  /api/v1/jobs/{id} — Check job status
-- GET  /api/v1/agents  — List available agents
-- GET  /api/v1/tokens  — Token usage dashboard
-- WS  /api/v1/ws      — Real-time job updates
+Start:
+    uvicorn api.server:app --host 0.0.0.0 --port 8000
+    cortexflow serve
 """
 
 import logging
+import json
 from typing import Optional
-from contextlib import asynccontextmanager
 
-import yaml
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-
-from core.engine import CortexFlowEngine
+try:
+    from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect
+    from fastapi.middleware.cors import CORSMiddleware
+    from pydantic import BaseModel
+    HAS_FASTAPI = True
+except ImportError:
+    HAS_FASTAPI = False
+    FastAPI = None
 
 logger = logging.getLogger("cortexflow.api")
 
-engine = CortexFlowEngine()
+# ── Engine singleton ────────────────────────────────────────────
+_engine = None
 
 
-class AnalyzeRequest(BaseModel):
-    type: str = "codebase"
-    target: str = ""
-    content: str = ""
-    pipeline: str = "default"
-    priority: int = 5
-    complexity: str = "medium"
+def _get_engine():
+    global _engine
+    if _engine is None:
+        from core.engine import CortexFlowEngine
+        import os
+
+        # Build config from env
+        provider_cfg = None
+        api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("MIMO_API_KEY")
+        if api_key:
+            provider_type = os.environ.get("CORTEXFLOW_PROVIDER", "anthropic")
+            base_url = os.environ.get("ANTHROPIC_BASE_URL") or os.environ.get("MIMO_BASE_URL")
+            model = os.environ.get("CORTEXFLOW_MODEL", "")
+            provider_cfg = {
+                "type": provider_type,
+                "api_key": api_key,
+                "base_url": base_url,
+                "model": model,
+            }
+
+        _engine = CortexFlowEngine(config={"provider": provider_cfg})
+    return _engine
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    logger.info("Starting CortexFlow API server")
-    await engine.initialize()
-    engine.create_pipeline("default")
-    await engine.queue.start()
-    yield
-    await engine.queue.stop()
-    logger.info("CortexFlow API server stopped")
+# ── Pydantic models (only if FastAPI available) ─────────────────
 
+if HAS_FASTAPI:
 
-app = FastAPI(
-    title="CortexFlow API",
-    version="1.0.0",
-    description="Multi-Agent AI Orchestration Platform",
-    lifespan=lifespan,
-)
+    class AnalysisRequest(BaseModel):
+        target: str
+        content: Optional[str] = None
+        type: Optional[str] = "default"
+        pipeline: Optional[str] = "default"
+        agents: Optional[list[str]] = None
+        session_id: Optional[str] = None
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+    class AnalysisResponse(BaseModel):
+        success: bool
+        session_id: str
+        pipeline: str
+        results: dict = {}
+        token_usage: dict = {}
 
+    class AuthRequest(BaseModel):
+        user_id: int
+        role: str = "analyst"
 
-@app.get("/")
-async def root():
-    return {
-        "service": "CortexFlow",
-        "version": "1.0.0",
-        "status": "running",
-        "agents": len(engine.agents),
-    }
+    class TokenResponse(BaseModel):
+        token: str
+        expires_in: str = "24h"
 
+    # ── App ─────────────────────────────────────────────────────
 
-@app.get("/api/v1/health")
-async def health():
-    return {
-        "status": "healthy",
-        "agents_loaded": len(engine.agents),
-        "pipelines": list(engine.pipelines.keys()),
-        "queue": engine.get_queue_stats(),
-    }
-
-
-@app.post("/api/v1/analyze")
-async def analyze(request: AnalyzeRequest):
-    job_id = await engine.queue.enqueue(
-        name=request.target or "analysis",
-        pipeline_config=request.model_dump(),
-        priority=request.priority,
+    app = FastAPI(
+        title="CortexFlow",
+        description="Multi-Agent AI Orchestration Platform for Security Analysis",
+        version="2.0.0",
     )
-    return {
-        "job_id": job_id,
-        "status": "queued",
-        "message": f"Analysis job {job_id} queued",
-        "estimated_tokens": 100000,
-    }
 
-
-@app.get("/api/v1/jobs/{job_id}")
-async def get_job(job_id: str):
-    job = engine.queue.get_status(job_id)
-    if not job:
-        return {"error": "Job not found"}, 404
-    return {
-        "id": job.id,
-        "name": job.name,
-        "status": job.status.value,
-        "progress": job.progress,
-        "created_at": job.created_at,
-        "tokens_used": job.tokens_used,
-    }
-
-
-@app.get("/api/v1/agents")
-async def list_agents():
-    return {
-        "agents": engine.get_agent_info(),
-        "total": len(engine.agents),
-    }
-
-
-@app.get("/api/v1/tokens")
-async def get_tokens():
-    return engine.get_token_summary()
-
-
-@app.websocket("/api/v1/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    logger.info("WebSocket client connected")
-
-    async def send_updates(event: str, job):
-        await websocket.send_json({
-            "event": event,
-            "job_id": job.id,
-            "status": job.status.value,
-            "progress": job.progress,
-        })
-
-    engine.queue.subscribe(send_updates)
-
-    try:
-        while True:
-            data = await websocket.receive_text()
-            await websocket.send_json({"echo": data})
-    except WebSocketDisconnect:
-        logger.info("WebSocket client disconnected")
-
-
-@app.post("/api/v1/analyze/sync")
-async def analyze_sync(request: AnalyzeRequest):
-    """Run analysis synchronously and return results."""
-    result = await engine.analyze(
-        input_data=request.model_dump(),
-        pipeline_name=request.pipeline,
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
-    return result
 
+    # ── Health / info ───────────────────────────────────────────
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    @app.get("/")
+    async def root():
+        return {
+            "name": "CortexFlow",
+            "version": "2.0.0",
+            "status": "running",
+            "docs": "/docs",
+        }
+
+    @app.get("/health")
+    async def health():
+        engine = _get_engine()
+        await engine.initialize()
+        return {
+            "status": "healthy",
+            "agents": len(engine.agents),
+            "provider": "active" if engine.provider else "none",
+            "storage": "active" if engine.db else "none",
+        }
+
+    # ── Analysis ────────────────────────────────────────────────
+
+    @app.post("/analyze", response_model=AnalysisResponse)
+    async def run_analysis(req: AnalysisRequest):
+        engine = _get_engine()
+        input_data = {
+            "target": req.target,
+            "content": req.content or "",
+            "type": req.type or "default",
+        }
+        try:
+            result = await engine.analyze(
+                input_data=input_data,
+                pipeline_name=req.pipeline or "default",
+                agent_names=req.agents,
+                session_id=req.session_id,
+            )
+            return AnalysisResponse(**result)
+        except Exception as e:
+            logger.error(f"Analysis failed: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # ── Agents ──────────────────────────────────────────────────
+
+    @app.get("/agents")
+    async def list_agents():
+        engine = _get_engine()
+        await engine.initialize()
+        return {"agents": engine.get_agent_info()}
+
+    # ── Tokens ──────────────────────────────────────────────────
+
+    @app.get("/tokens/stats")
+    async def token_stats():
+        engine = _get_engine()
+        return engine.get_token_summary()
+
+    # ── Auth ────────────────────────────────────────────────────
+
+    @app.post("/auth/token")
+    async def create_token(req: AuthRequest):
+        from api.auth import get_auth
+        auth = get_auth()
+        token = auth.create_token(user_id=req.user_id, role=req.role)
+        return TokenResponse(token=token)
+
+    @app.get("/auth/verify")
+    async def verify_token(token: str):
+        from api.auth import get_auth
+        auth = get_auth()
+        payload = auth.verify_token(token)
+        if payload is None:
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
+        return payload
+
+    # ── Queue ───────────────────────────────────────────────────
+
+    @app.get("/queue/stats")
+    async def queue_stats():
+        engine = _get_engine()
+        return engine.get_queue_stats()
+
+    @app.post("/queue/enqueue")
+    async def enqueue_job(name: str, pipeline: str = "default", priority: int = 5):
+        engine = _get_engine()
+        await engine.queue.start()
+        job_id = await engine.queue.enqueue(
+            name=name,
+            pipeline_config={"pipeline": pipeline},
+            priority=priority,
+        )
+        return {"job_id": job_id, "status": "queued"}
+
+    # ── WebSocket ───────────────────────────────────────────────
+
+    @app.websocket("/ws")
+    async def websocket_endpoint(ws: WebSocket):
+        await ws.accept()
+        try:
+            while True:
+                data = await ws.receive_text()
+                try:
+                    msg = json.loads(data)
+                except json.JSONDecodeError:
+                    await ws.send_text(json.dumps({"error": "invalid JSON"}))
+                    continue
+
+                action = msg.get("action", "")
+                if action == "analyze":
+                    engine = _get_engine()
+                    result = await engine.analyze(
+                        input_data=msg.get("input", {}),
+                        pipeline_name=msg.get("pipeline", "default"),
+                    )
+                    await ws.send_text(json.dumps(result, default=str))
+                elif action == "ping":
+                    await ws.send_text(json.dumps({"action": "pong"}))
+                else:
+                    await ws.send_text(
+                        json.dumps({"error": f"unknown action: {action}"}))
+        except WebSocketDisconnect:
+            pass
+
+    # ── Plugins ─────────────────────────────────────────────────
+
+    @app.get("/plugins")
+    async def list_plugins():
+        engine = _get_engine()
+        await engine.initialize()
+        if engine.plugins:
+            return {"plugins": engine.plugins.list_plugins()}
+        return {"plugins": [], "note": "Plugin system not active"}
+
+else:
+    app = None

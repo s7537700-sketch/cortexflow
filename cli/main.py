@@ -236,7 +236,10 @@ if HAS_TYPER:
 
 
 async def _run_analysis(target: str, pipeline: str, provider: str, model: Optional[str]) -> dict:
-    """Run analysis (lazy imports to avoid heavy deps at CLI startup)."""
+    """Run analysis via CortexFlowEngine."""
+    from core.engine import CortexFlowEngine
+    import os
+
     target_path = Path(target)
     content = ""
     if target_path.is_file():
@@ -245,27 +248,87 @@ async def _run_analysis(target: str, pipeline: str, provider: str, model: Option
         except Exception:
             content = str(target_path.read_bytes()[:50000])
 
-    return {
-        "target": target,
-        "pipeline": pipeline,
-        "provider": provider,
-        "model": model,
-        "content_size": len(content),
-        "status": "ready_to_run",
-        "note": "Run via API or programmatic interface for full execution",
-    }
+    # Build provider config from env
+    provider_cfg = None
+    api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("MIMO_API_KEY")
+    if api_key:
+        provider_cfg = {
+            "type": provider,
+            "api_key": api_key,
+            "base_url": os.environ.get(
+                "ANTHROPIC_BASE_URL") or os.environ.get("MIMO_BASE_URL"),
+            "model": model or os.environ.get("CORTEXFLOW_MODEL", ""),
+        }
+
+    engine = CortexFlowEngine(config={"provider": provider_cfg})
+    result = await engine.analyze(
+        input_data={
+            "target": target,
+            "content": content,
+            "type": pipeline,
+        },
+        pipeline_name=pipeline,
+    )
+    return result
 
 
 async def _run_workflow(workflow_path: Path, input_target: str) -> dict:
-    """Execute a YAML workflow."""
+    """Execute a YAML workflow via CortexFlowEngine."""
+    import re
     import yaml
+    from core.engine import CortexFlowEngine
+
     workflow = yaml.safe_load(workflow_path.read_text())
-    return {
-        "workflow": workflow.get("name"),
-        "input": input_target,
-        "stages": [s.get("name") for s in workflow.get("stages", [])],
-        "status": "queued",
+
+    # Mapping: YAML class names → engine agent dict keys
+    _AGENT_MAP = {
+        "OrchestratorAgent": "orchestrator",
+        "Orchestrator": "orchestrator",
+        "CodeAnalyzerAgent": "code_analyzer",
+        "CodeAnalyzer": "code_analyzer",
+        "VulnScannerAgent": "vuln_scanner",
+        "VulnScanner": "vuln_scanner",
+        "ExploitSuggesterAgent": "exploit_suggester",
+        "ExploitSuggester": "exploit_suggester",
+        "ReportGeneratorAgent": "report_generator",
+        "ReportGenerator": "report_generator",
+        "ConfigExtractorAgent": "config_extractor",
+        "ConfigExtractor": "config_extractor",
+        "MemoryForensicsAgent": "memory_forensics",
+        "MemoryForensics": "memory_forensics",
+        "MonitorAgent": "monitor_agent",
+        "Monitor": "monitor_agent",
+        "NetworkAnalyzerAgent": "network_analyzer",
+        "NetworkAnalyzer": "network_analyzer",
+        "ThreatIntelAgent": "threat_intel",
+        "ThreatIntel": "threat_intel",
     }
+
+    raw_names = [s.get("agent", s.get("name")) for s in workflow.get("stages", [])]
+    agent_names = []
+    for n in raw_names:
+        if n in _AGENT_MAP:
+            agent_names.append(_AGENT_MAP[n])
+        else:
+            # Fallback: CamelCase → snake_case
+            s = re.sub(r'Agent$', '', n)
+            s = re.sub(r'(?<!^)(?=[A-Z])', '_', s)
+            agent_names.append(s.lower())
+    pipeline_name = workflow.get("name", "custom")
+
+    engine = CortexFlowEngine()
+    await engine.initialize()
+
+    result = await engine.analyze(
+        input_data={
+            "target": input_target,
+            "content": "",
+            "type": pipeline_name,
+        },
+        pipeline_name=pipeline_name,
+        agent_names=agent_names,
+    )
+    return result
 
 
 def _format_text(result: dict) -> str:
