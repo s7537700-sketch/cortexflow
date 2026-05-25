@@ -1,0 +1,67 @@
+# CortexFlow Workflow: Binary Analysis
+#
+# Designed for full reverse engineering of executable binaries:
+# PE (Windows .exe/.dll), ELF (Linux), Mach-O (macOS), and raw shellcode.
+
+name: binary_analysis
+version: "1.0"
+description: |
+  Comprehensive binary analysis pipeline. Extracts structure, finds packers and
+  obfuscation, identifies C2 indicators, analyzes embedded configuration,
+  detects injection techniques, and maps to MITRE ATT&CK.
+
+inputs:
+  type: binary
+  required: ["content"]
+  optional: ["filename", "hashes"]
+
+stages:
+  - name: orchestrator
+    agent: OrchestratorAgent
+    timeout: 300
+    config:
+      analysis_depth: deep
+
+  - name: code_analyzer
+    agent: CodeAnalyzerAgent
+    depends_on: [orchestrator]
+    timeout: 180
+
+  - name: config_extractor
+    agent: ConfigExtractorAgent
+    depends_on: [code_analyzer]
+    timeout: 120
+
+  - name: network_analyzer
+    agent: NetworkAnalyzerAgent
+    depends_on: [code_analyzer]
+    timeout: 120
+
+  - name: memory_forensics
+    agent: MemoryForensicsAgent
+    depends_on: [code_analyzer]
+    timeout: 180
+
+  - name: vuln_scanner
+    agent: VulnScannerAgent
+    depends_on: [code_analyzer]
+    timeout: 240
+
+  - name: threat_intel
+    agent: ThreatIntelAgent
+    depends_on: [vuln_scanner, network_analyzer, memory_forensics]
+    timeout: 200
+
+  - name: report_generator
+    agent: ReportGeneratorAgent
+    depends_on: [threat_intel]
+    timeout: 120
+
+outputs:
+  - structured_report.json
+  - yara_rules.yar
+  - mitre_attack_matrix.json
+  - executive_summary.md
+
+token_budget: 800000
+estimated_runtime_minutes: 5

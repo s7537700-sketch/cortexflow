@@ -1,0 +1,54 @@
+# CortexFlow Workflow: Code Review
+#
+# Static analysis of source code repositories.
+# Identifies security vulnerabilities, anti-patterns, and risky dependencies.
+
+name: code_review
+version: "1.0"
+description: |
+  Multi-agent code review pipeline focused on security-sensitive findings.
+  Parallel analysis across files, then consolidated reporting.
+
+inputs:
+  type: codebase
+  required: ["content"]
+  optional: ["language", "framework"]
+
+stages:
+  - name: orchestrator
+    agent: OrchestratorAgent
+    timeout: 60
+
+  - name: code_analyzer
+    agent: CodeAnalyzerAgent
+    depends_on: [orchestrator]
+    parallel: true
+    timeout: 240
+
+  - name: vuln_scanner
+    agent: VulnScannerAgent
+    depends_on: [code_analyzer]
+    timeout: 240
+
+  - name: config_extractor
+    agent: ConfigExtractorAgent
+    depends_on: [code_analyzer]
+    timeout: 120
+
+  - name: exploit_suggester
+    agent: ExploitSuggesterAgent
+    depends_on: [vuln_scanner]
+    timeout: 240
+
+  - name: report_generator
+    agent: ReportGeneratorAgent
+    depends_on: [exploit_suggester, config_extractor]
+    timeout: 120
+
+outputs:
+  - findings.sarif
+  - executive_summary.md
+  - remediation_plan.md
+
+token_budget: 500000
+estimated_runtime_minutes: 4

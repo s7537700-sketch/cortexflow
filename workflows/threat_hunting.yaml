@@ -1,0 +1,81 @@
+# CortexFlow Workflow: Threat Hunting
+#
+# Proactive analysis combining multiple agents in deep mode for hunting
+# specific threat actor campaigns and zero-days in the wild.
+
+name: threat_hunting
+version: "1.0"
+description: |
+  Comprehensive threat hunting pipeline. Combines all 10 agents with extended
+  context for maximum coverage. Best for high-stakes incident response.
+
+inputs:
+  type: any
+  required: ["content"]
+
+stages:
+  - name: orchestrator
+    agent: OrchestratorAgent
+    timeout: 120
+    config:
+      analysis_depth: maximum
+
+  - name: code_analyzer
+    agent: CodeAnalyzerAgent
+    depends_on: [orchestrator]
+    timeout: 360
+
+  - name: config_extractor
+    agent: ConfigExtractorAgent
+    depends_on: [code_analyzer]
+    parallel: true
+    timeout: 240
+
+  - name: network_analyzer
+    agent: NetworkAnalyzerAgent
+    depends_on: [code_analyzer]
+    parallel: true
+    timeout: 240
+
+  - name: memory_forensics
+    agent: MemoryForensicsAgent
+    depends_on: [code_analyzer]
+    parallel: true
+    timeout: 240
+
+  - name: vuln_scanner
+    agent: VulnScannerAgent
+    depends_on: [code_analyzer]
+    timeout: 360
+
+  - name: exploit_suggester
+    agent: ExploitSuggesterAgent
+    depends_on: [vuln_scanner]
+    timeout: 360
+
+  - name: threat_intel
+    agent: ThreatIntelAgent
+    depends_on: [config_extractor, network_analyzer, memory_forensics, exploit_suggester]
+    timeout: 300
+
+  - name: monitor
+    agent: MonitorAgent
+    parallel_with: [orchestrator, code_analyzer, vuln_scanner, threat_intel]
+    timeout: 60
+
+  - name: report_generator
+    agent: ReportGeneratorAgent
+    depends_on: [threat_intel, monitor]
+    timeout: 240
+
+outputs:
+  - hunt_report.md
+  - all_iocs.json
+  - mitre_matrix.json
+  - yara_rules.yar
+  - timeline.json
+  - executive_brief.pdf
+
+token_budget: 1500000
+estimated_runtime_minutes: 12
+priority: critical

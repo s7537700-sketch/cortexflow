@@ -1,0 +1,47 @@
+# CortexFlow Workflow: Network Reconnaissance
+#
+# Network-focused analysis of pcaps, network samples, and traffic captures.
+
+name: network_recon
+version: "1.0"
+description: |
+  Extract network indicators, detect C2 infrastructure, fingerprint protocols,
+  and map findings to known threat actor infrastructure.
+
+inputs:
+  type: network
+  required: ["content"]
+  optional: ["capture_format", "duration_seconds"]
+
+stages:
+  - name: orchestrator
+    agent: OrchestratorAgent
+    timeout: 60
+
+  - name: network_analyzer
+    agent: NetworkAnalyzerAgent
+    depends_on: [orchestrator]
+    timeout: 240
+
+  - name: config_extractor
+    agent: ConfigExtractorAgent
+    depends_on: [network_analyzer]
+    timeout: 120
+
+  - name: threat_intel
+    agent: ThreatIntelAgent
+    depends_on: [network_analyzer]
+    timeout: 200
+
+  - name: report_generator
+    agent: ReportGeneratorAgent
+    depends_on: [threat_intel, config_extractor]
+    timeout: 90
+
+outputs:
+  - network_iocs.json
+  - protocol_breakdown.md
+  - threat_attribution.md
+
+token_budget: 250000
+estimated_runtime_minutes: 3
