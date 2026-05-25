@@ -13,7 +13,7 @@ import asyncio
 import logging
 import uuid
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -182,5 +182,3 @@ class JobQueue:
             return True
         return False
 
-
-from typing import Callable  # noqa: E402

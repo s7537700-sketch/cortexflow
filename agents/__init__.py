@@ -1,5 +1,5 @@
 """
-CortexFlow Agents - 12 specialized AI agents for security analysis orchestration.
+CortexFlow Agents - 10 specialized AI agents for security analysis orchestration.
 
 Agent Catalog:
   Orchestrator       - Pipeline planner and coordinator

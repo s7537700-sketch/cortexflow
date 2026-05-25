@@ -6,6 +6,8 @@ agent stages, each with configurable inputs, outputs, and execution
 policy (sequential, parallel, conditional).
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 from enum import Enum
