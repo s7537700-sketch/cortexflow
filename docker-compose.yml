@@ -1,0 +1,32 @@
+version: "3.9"
+
+services:
+  cortexflow-api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./.env:/app/.env
+    environment:
+      - CORTEXFLOW_ENV=production
+      - CORTEXFLOW_DB_URL=sqlite:///data/cortexflow.db
+    restart: unless-stopped
+    command: uvicorn api.server:app --host 0.0.0.0 --port 8000
+
+  cortexflow-web:
+    image: nginx:alpine
+    ports:
+      - "3000:80"
+    volumes:
+      - ./web:/usr/share/nginx/html
+    depends_on:
+      - cortexflow-api
+
+  cortexflow-mcp:
+    build: .
+    ports:
+      - "9000:9000"
+    depends_on:
+      - cortexflow-api
+    command: python mcp/server.py --port 9000

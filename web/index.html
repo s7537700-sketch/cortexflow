@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CortexFlow — Dashboard</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="app">
+        <nav class="sidebar">
+            <div class="logo">
+                <h1>CortexFlow</h1>
+                <span class="version">v1.0.0</span>
+            </div>
+            <ul class="nav-links">
+                <li class="active"><a href="#" data-page="dashboard">Dashboard</a></li>
+                <li><a href="#" data-page="agents">Agents</a></li>
+                <li><a href="#" data-page="jobs">Jobs</a></li>
+                <li><a href="#" data-page="tokens">Token Analytics</a></li>
+                <li><a href="#" data-page="settings">Settings</a></li>
+            </ul>
+            <div class="status-bar">
+                <span class="status-dot running"></span>
+                Platform Active
+            </div>
+        </nav>
+        <main class="content">
+            <header>
+                <h2 id="page-title">Dashboard</h2>
+                <div class="header-actions">
+                    <button id="refreshBtn" class="btn btn-secondary">⟳ Refresh</button>
+                </div>
+            </header>
+            <div id="page-content"></div>
+        </main>
+    </div>
+    <script src="js/api.js"></script>
+    <script src="js/dashboard.js"></script>
+</body>
+</html>

@@ -1,0 +1,77 @@
+# CortexFlow — Multi-Agent Orchestration Platform Configuration
+
+platform:
+  name: CortexFlow
+  version: 1.0.0
+  debug: false
+  max_concurrent_jobs: 10
+
+server:
+  host: 0.0.0.0
+  port: 8000
+  cors_origins: ["*"]
+  rate_limit: 100
+
+database:
+  url: sqlite:///data/cortexflow.db
+  pool_size: 5
+  echo: false
+
+agents:
+  orchestrator:
+    model: claude-sonnet-4.5
+    max_tokens: 48000
+    temperature: 0.1
+    timeout: 300
+
+  code_analyzer:
+    model: claude-sonnet-4.5
+    max_tokens: 24000
+    temperature: 0.0
+    timeout: 180
+
+  vuln_scanner:
+    model: claude-sonnet-4.5
+    max_tokens: 32000
+    temperature: 0.0
+    timeout: 240
+
+  exploit_suggester:
+    model: claude-opus-4.5
+    max_tokens: 32000
+    temperature: 0.2
+    timeout: 300
+
+  report_generator:
+    model: claude-haiku-4.5
+    max_tokens: 16000
+    temperature: 0.3
+    timeout: 120
+
+  config_extractor:
+    model: claude-haiku-4.5
+    max_tokens: 12000
+    temperature: 0.0
+    timeout: 120
+
+  monitor:
+    model: claude-haiku-4.5
+    max_tokens: 8000
+    temperature: 0.0
+    timeout: 60
+
+token_tracking:
+  enabled: true
+  log_dir: ./data/tokens
+  alert_threshold: 1000000
+  monthly_budget: 50000000
+
+plugins:
+  directory: ./plugins
+  auto_load: true
+  allowed_extensions: [".py", ".so"]
+
+storage:
+  session_retention_days: 90
+  max_report_size_mb: 50
+  backup_enabled: true
