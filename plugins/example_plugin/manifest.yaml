@@ -1,0 +1,20 @@
+name: example_plugin
+version: 1.0.0
+description: Example CortexFlow plugin demonstrating the extension API
+author: CortexFlow Team
+homepage: https://github.com/s7537700-sketch/cortexflow
+
+# What this plugin provides
+provides:
+  - type: agent
+    name: ExampleHelloAgent
+    description: A simple example agent that says hello
+
+# Plugin configuration schema
+config:
+  greeting:
+    type: string
+    default: "Hello from plugin"
+
+# Compatibility
+requires_cortexflow: ">=2.0.0"
